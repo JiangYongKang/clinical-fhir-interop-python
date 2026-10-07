@@ -7,6 +7,7 @@ from .coding import normalize_code, normalize_time
 from .errors import InteropError, RejectReason
 from .masking import mask_for_export
 from .models import Actor, Resource, ResourceType
+from .normalize import normalize_patient_payload
 from .store import VersionedStore
 
 # 不同来源可能使用的字段名变体（camelCase / snake_case）
@@ -77,10 +78,10 @@ class InteropService:
             effective_time = normalize_time(time_raw)
             payload["effective_time"] = effective_time.isoformat()
 
-        if rtype == ResourceType.PATIENT and not raw.get("name"):
-            raise InteropError(RejectReason.MISSING_FIELD,
-                               "Patient 缺少必填字段: name",
-                               details={"field": "name"})
+        if rtype == ResourceType.PATIENT:
+            # Patient 全字段归一：字段名/取值统一为规范形态，
+            # 无法识别的字段或取值以可区分原因拒绝（不透传、不静默写入）
+            payload = normalize_patient_payload(payload)
 
         return Resource(resource_type=rtype, resource_id=rid, source=source,
                         payload=payload, effective_time=effective_time)
@@ -174,3 +175,85 @@ class InteropService:
         return {"resource_type": rtype.value, "resource_id": resource_id,
                 "version": current.version, "payload": masked_payload,
                 "masked_fields": masked_fields}
+
+    def export_batch(self, actor: Actor, resource_type: str,
+                     resource_ids: list[str]) -> dict:
+        """批量导出：一次调用导出一批资源，逐项给出成功/拒绝及原因。
+
+        一致性：所有资源在同一快照点读取（见 VersionedStore.snapshot），
+        导出结果对应同一个完整版本切面，不会混杂新旧值或半截状态。
+        脱敏与审计与单条导出完全对齐：逐项审计，masked_fields 一一对应。
+        """
+        rtype = self._parse_type(resource_type)
+        try:
+            authorize(actor, Action.EXPORT, rtype)
+        except InteropError as e:
+            self._audit(actor, Action.EXPORT, resource_type, ",".join(resource_ids) or "-",
+                        f"denied:{e.reason.value}")
+            raise
+        if not resource_ids:
+            raise InteropError(RejectReason.MISSING_FIELD,
+                               "批量导出缺少资源 id 列表",
+                               details={"field": "resource_ids"})
+
+        snap = self.store.snapshot([(rtype, rid) for rid in resource_ids])
+        items: list[dict] = []
+        for rid in resource_ids:
+            current = snap[(rtype, rid)]
+            if current is None:
+                self._audit(actor, Action.EXPORT, rtype.value, rid,
+                            f"denied:{RejectReason.NOT_FOUND.value}")
+                items.append({"resource_id": rid, "status": "rejected",
+                              "reason": RejectReason.NOT_FOUND.value})
+                continue
+            masked_payload, masked_fields = mask_for_export(current.resource, actor)
+            self._audit(actor, Action.EXPORT, rtype.value, rid, "success", masked_fields)
+            items.append({"resource_id": rid, "status": "ok",
+                          "version": current.version, "payload": masked_payload,
+                          "masked_fields": masked_fields})
+        ok = sum(1 for it in items if it["status"] == "ok")
+        return {"resource_type": rtype.value, "consistent_snapshot": True,
+                "items": items,
+                "summary": {"total": len(items), "ok": ok,
+                            "rejected": len(items) - ok}}
+
+    # ---- 审计检索（仅运维角色） ----
+
+    def _query_audit(self, actor: Actor, *, subject=None, action=None,
+                     outcome=None, since=None, until=None):
+        """授权 + 解析时间范围 + 查询，返回匹配的审计记录。"""
+        try:
+            authorize(actor, Action.AUDIT_QUERY)
+            since_dt = normalize_time(since) if since is not None else None
+            until_dt = normalize_time(until) if until is not None else None
+        except InteropError as e:
+            self._audit(actor, Action.AUDIT_QUERY, "-", "-",
+                        f"denied:{e.reason.value}")
+            raise
+        records = self.audit.query(subject=subject, action=action, outcome=outcome,
+                                   since=since_dt, until=until_dt)
+        self._audit(actor, Action.AUDIT_QUERY, "-", "-", "success")
+        return records
+
+    @staticmethod
+    def _serialize_audit(records) -> list[dict]:
+        # 审计记录只含主体/动作/结果/被脱敏字段名，绝不含原始敏感值
+        return [{"subject": r.subject, "role": r.role, "purpose": r.purpose,
+                 "action": r.action, "resource_type": r.resource_type,
+                 "resource_id": r.resource_id, "outcome": r.outcome,
+                 "masked_fields": list(r.masked_fields), "at": r.at.isoformat()}
+                for r in records]
+
+    def search_audit(self, actor: Actor, *, subject=None, action=None,
+                     outcome=None, since=None, until=None) -> list[dict]:
+        """按主体/动作/结果/时间范围检索审计（仅运维角色）。"""
+        return self._serialize_audit(self._query_audit(
+            actor, subject=subject, action=action, outcome=outcome,
+            since=since, until=until))
+
+    def audit_summary(self, actor: Actor, *, subject=None, action=None,
+                      outcome=None, since=None, until=None) -> dict:
+        """对筛选结果汇总计数，便于对账（仅运维角色）。"""
+        records = self._query_audit(actor, subject=subject, action=action,
+                                    outcome=outcome, since=since, until=until)
+        return AuditLog.summarize(records)

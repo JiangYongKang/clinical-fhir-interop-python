@@ -27,6 +27,23 @@ class VersionedStore:
             chain = self._versions.get((resource_type, resource_id))
             return chain[-1] if chain else None
 
+    def snapshot(
+        self, keys: list[tuple[ResourceType, str]]
+    ) -> dict[tuple[ResourceType, str], ResourceVersion | None]:
+        """一次性读取一批资源的当前版本（同一把锁内完成）。
+
+        一致性语义：返回的所有版本对应同一时间点——快照期间发生的写入
+        要么全部先于快照（其新版本可见），要么全部后于快照（不可见），
+        不会出现同一批结果里有的资源是新值、有的是旧值的混杂状态。
+        不存在的资源对应 None。
+        """
+        with self._lock:
+            out: dict[tuple[ResourceType, str], ResourceVersion | None] = {}
+            for key in keys:
+                chain = self._versions.get(key)
+                out[key] = chain[-1] if chain else None
+            return out
+
     def history(self, resource_type: ResourceType, resource_id: str) -> list[ResourceVersion]:
         with self._lock:
             return list(self._versions.get((resource_type, resource_id), []))

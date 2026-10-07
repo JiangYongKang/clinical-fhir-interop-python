@@ -14,6 +14,8 @@ _STATUS_BY_REASON = {
     RejectReason.MISSING_FIELD: 422,
     RejectReason.INVALID_CODE: 422,
     RejectReason.INVALID_TIME: 422,
+    RejectReason.INVALID_VALUE: 422,
+    RejectReason.UNSUPPORTED_FIELD: 422,
     RejectReason.UNSUPPORTED_RESOURCE: 422,
     RejectReason.VERSION_CONFLICT: 409,
     RejectReason.NOT_FOUND: 404,
@@ -65,6 +67,35 @@ def history(resource_type: str, resource_id: str,
 def export(resource_type: str, resource_id: str,
            x_subject: str = Header(), x_role: str = Header(), x_purpose: str = Header()):
     return service.export(_actor(x_subject, x_role, x_purpose), resource_type, resource_id)
+
+
+@app.post("/export/{resource_type}/batch")
+def export_batch(resource_type: str, body: dict,
+                 x_subject: str = Header(), x_role: str = Header(), x_purpose: str = Header()):
+    return service.export_batch(_actor(x_subject, x_role, x_purpose), resource_type,
+                                list(body.get("resource_ids") or []))
+
+
+@app.get("/audit")
+def search_audit(subject: str | None = None, action: str | None = None,
+                 outcome: str | None = None, since: str | None = None,
+                 until: str | None = None,
+                 x_subject: str = Header(), x_role: str = Header(),
+                 x_purpose: str = Header()):
+    return service.search_audit(_actor(x_subject, x_role, x_purpose),
+                                subject=subject, action=action, outcome=outcome,
+                                since=since, until=until)
+
+
+@app.get("/audit/summary")
+def audit_summary(subject: str | None = None, action: str | None = None,
+                  outcome: str | None = None, since: str | None = None,
+                  until: str | None = None,
+                  x_subject: str = Header(), x_role: str = Header(),
+                  x_purpose: str = Header()):
+    return service.audit_summary(_actor(x_subject, x_role, x_purpose),
+                                 subject=subject, action=action, outcome=outcome,
+                                 since=since, until=until)
 
 
 if __name__ == "__main__":

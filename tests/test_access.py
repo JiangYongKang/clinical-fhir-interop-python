@@ -55,7 +55,7 @@ def test_export_unmasked_for_clinician(svc, clinician):
              parties=[clinician.subject],
              rationale="诊疗用途导出按诊疗需要可见明文")
     out = svc.export(clinician, "Patient", "p-1")
-    assert out["payload"]["name"] == "张三"
+    assert out["payload"]["name"] == {"text": "张三"}  # 字符串姓名归一为规范结构
     assert out["masked_fields"] == []
 
 

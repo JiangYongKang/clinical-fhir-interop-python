@@ -24,6 +24,11 @@ def researcher():
     return Actor("res-li", Role.RESEARCHER, Purpose.RESEARCH)
 
 
+@pytest.fixture
+def ops():
+    return Actor("ops-zhao", Role.ADMIN, Purpose.OPERATIONS)
+
+
 def log_case(case: str, *, inputs: dict, parties: list[str], rationale: str):
     """单测日志：打印输入、参与方与判定依据。"""
     log.info("CASE %s | inputs=%s | parties=%s | rationale=%s",
