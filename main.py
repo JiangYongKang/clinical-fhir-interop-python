@@ -14,6 +14,8 @@ _STATUS_BY_REASON = {
     RejectReason.MISSING_FIELD: 422,
     RejectReason.INVALID_CODE: 422,
     RejectReason.INVALID_TIME: 422,
+    RejectReason.INVALID_FIELD: 422,
+    RejectReason.UNSUPPORTED_FIELD: 422,
     RejectReason.UNSUPPORTED_RESOURCE: 422,
     RejectReason.VERSION_CONFLICT: 409,
     RejectReason.NOT_FOUND: 404,
@@ -65,6 +67,22 @@ def history(resource_type: str, resource_id: str,
 def export(resource_type: str, resource_id: str,
            x_subject: str = Header(), x_role: str = Header(), x_purpose: str = Header()):
     return service.export(_actor(x_subject, x_role, x_purpose), resource_type, resource_id)
+
+
+@app.post("/export/{resource_type}/_batch")
+def batch_export(resource_type: str, body: dict,
+                 x_subject: str = Header(), x_role: str = Header(), x_purpose: str = Header()):
+    return service.batch_export(_actor(x_subject, x_role, x_purpose), resource_type,
+                                body.get("resource_ids"))
+
+
+@app.get("/audit")
+def audit(x_subject: str = Header(), x_role: str = Header(), x_purpose: str = Header(),
+          subject: str | None = None, action: str | None = None,
+          outcome: str | None = None, start: str | None = None, end: str | None = None):
+    return service.query_audit(_actor(x_subject, x_role, x_purpose),
+                               subject=subject, action=action, outcome=outcome,
+                               start=start, end=end)
 
 
 if __name__ == "__main__":

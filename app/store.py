@@ -31,6 +31,20 @@ class VersionedStore:
         with self._lock:
             return list(self._versions.get((resource_type, resource_id), []))
 
+    def snapshot(
+        self, keys: list[tuple[ResourceType, str]]
+    ) -> dict[tuple[ResourceType, str], ResourceVersion | None]:
+        """在同一把锁内取一批资源的当前版本，保证批量读取对应同一一致时点。
+
+        导出期间即使有并发写入，快照中的每个资源版本都来自同一临界区，
+        不会出现有的资源是新值、有的是旧值的混搭，更不会读到半截状态。
+        """
+        with self._lock:
+            return {
+                key: (self._versions[key][-1] if self._versions.get(key) else None)
+                for key in keys
+            }
+
     def put(
         self,
         resource: Resource,

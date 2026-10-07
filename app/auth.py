@@ -12,14 +12,16 @@ class Action(str, Enum):
     WRITE = "write"
     EXPORT = "export"
     HISTORY = "history"
+    AUDIT_QUERY = "audit_query"
 
 
 # 访问控制策略：(角色, 用途) -> 允许的动作集合
-# - admin: 全部动作（运维用途）
+# - admin: 全部动作（运维用途），含审计检索
 # - clinician + treatment: 读写、导出、查看历史
 # - researcher + research: 仅读取与导出（导出由脱敏策略保护），不可写入
 _POLICY: dict[tuple[Role, Purpose], set[Action]] = {
-    (Role.ADMIN, Purpose.OPERATIONS): {Action.READ, Action.WRITE, Action.EXPORT, Action.HISTORY},
+    (Role.ADMIN, Purpose.OPERATIONS): {Action.READ, Action.WRITE, Action.EXPORT,
+                                       Action.HISTORY, Action.AUDIT_QUERY},
     (Role.CLINICIAN, Purpose.TREATMENT): {Action.READ, Action.WRITE, Action.EXPORT, Action.HISTORY},
     (Role.RESEARCHER, Purpose.RESEARCH): {Action.READ, Action.EXPORT},
 }
